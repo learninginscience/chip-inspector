@@ -81,7 +81,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*a, directory=ROOT, **kw)
 
     def log_message(self, fmt, *args):
-        if "/api/" not in (args[0] if args else ""):
+        if "/api/" not in str(args[0] if args else ""):
             super().log_message(fmt, *args)
 
     def end_headers(self):
