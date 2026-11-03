@@ -38,7 +38,9 @@
   /* ── 晶片圖 ── */
   .mid{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 8px;min-height:0}
   .stage{position:relative;flex:none;border-radius:10px;overflow:hidden;background:#000;box-shadow:0 10px 40px rgba(0,0,0,.45);touch-action:none}
-  .stage img{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
+  .stage img{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;visibility:hidden}
+  .stage img.on{visibility:visible}
+  .stage .loading{position:absolute;inset:0;display:grid;place-items:center;background:#111;color:var(--muted);font-weight:700;pointer-events:none}
   .stage svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   .stage.locked{filter:saturate(.6) brightness(.7)}
   .nav{flex:none;width:52px;height:96px;border:0;border-radius:16px;background:var(--panel);color:var(--text);font-size:30px;font-weight:900}
@@ -76,6 +78,9 @@
   .card p{margin:8px 0;color:rgba(246,241,234,.78);font-size:16px;line-height:1.65}
   .card .room b{color:var(--accent);font-size:1.4em;letter-spacing:.12em}
   .card .note{color:#ffd166}
+  .card .mine{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+  .card .mine li{background:rgba(255,179,92,.16);border:1px solid rgba(255,179,92,.5);border-radius:999px;padding:4px 12px;font-size:15px}
+  .card .left{font-size:14px;color:var(--muted);margin-top:6px}
   .card .rule{margin-top:14px;padding:14px;border-radius:14px;background:rgba(255,255,255,.06);font-size:15.5px;text-align:left}
   .card .rule b{color:var(--accent)}
   .card .err{color:#ff8f80;min-height:1.4em;margin:6px 0 0}
@@ -112,7 +117,8 @@
 <div class="mid">
   <button class="nav" id="prev" aria-label="上一張">‹</button>
   <div class="stage locked" id="stage">
-    <img id="chipImg" alt="" draggable="false">
+    <div id="imgs"></div>
+    <div class="loading" id="loading" hidden>載入圖片中…</div>
     <svg id="marks" preserveAspectRatio="none"></svg>
     <div class="label" id="label">第 1 張</div>
   </div>
@@ -143,6 +149,22 @@ function freshGame() {
   return { score: 0, found: 0, wrong: 0, chips: CHIPS.map(() => ({ seen: 0, hits: [], taps: [] })) };
 }
 G = freshGame();
+
+// ── 晶片圖 ──
+// 6 張圖一開始就全部放進畫面、只顯示目前那張。
+// 以前換張時是改同一個 <img> 的網址，新圖還沒下載完之前畫面會繼續顯示上一張，
+// 學生在「上一張的圖」上點瑕疵，卻用「這一張」的答案判定，就被扣分了。
+const IMGS = CHIPS.map((c, i) => {
+  const im = new Image();
+  im.alt = ""; im.draggable = false;
+  im.src = `img/chip${i + 1}.jpg`;
+  im.addEventListener("load", () => { if (i === cur) render(); });
+  $("imgs").appendChild(im);
+  return im;
+});
+const loaded = i => IMGS[i].complete && IMGS[i].naturalWidth > 0;
+const allLoaded = () => Promise.all(IMGS.map((im, i) => loaded(i) ? null :
+  new Promise(r => { im.addEventListener("load", r, { once: true }); im.addEventListener("error", r, { once: true }); })));
 
 // ── 畫面 ──
 const NS = "http://www.w3.org/2000/svg";
@@ -182,7 +204,8 @@ function go(i) {
 }
 
 function render() {
-  $("chipImg").src = `img/chip${cur + 1}.png`;
+  IMGS.forEach((im, i) => im.classList.toggle("on", i === cur));
+  $("loading").hidden = loaded(cur);
   $("label").textContent = `第 ${cur + 1} 張`;
   $("prev").disabled = cur === 0;
   $("next").disabled = cur === CHIPS.length - 1;
@@ -219,6 +242,7 @@ function pop(x, y, text, kind) {
 // ── 點擊 ──
 $("stage").addEventListener("pointerdown", e => {
   if (!running || !e.isPrimary) return;
+  if (!loaded(cur)) return; // 圖還沒載好：不算分也不扣分
   const t = Date.now();
   if (t - lastTap < TAP_GAP) return;
   lastTap = t;
@@ -260,8 +284,12 @@ function noteSeen() {
 }
 
 let clockTimer = 0;
-function startRound(ends) {
+async function startRound(ends) {
   endsAt = ends;
+  if (IMGS.some((im, i) => !loaded(i))) {   // 圖還沒全部下載完：先等，時間照樣在跑
+    card(`<h2>載入圖片中…</h2><p>請稍等一下</p><div class="dots"><i></i><i></i><i></i></div>`);
+    await allLoaded();
+  }
   running = true;
   seenSince = Date.now();
   hideCard();
@@ -315,7 +343,9 @@ function showEnd() {
 // ── 單人模式 ──
 function soloIntro() {
   card(`<h2>晶片檢測站</h2>${RULE(DEFAULT_SECONDS)}<button type="button" id="go">開始</button>`);
-  $("go").onclick = () => {
+  $("go").onclick = async () => {
+    card(`<h2>載入圖片中…</h2><div class="dots"><i></i><i></i><i></i></div>`);
+    await allLoaded();
     let n = 3;
     card(`<p>準備好了嗎？</p><div class="count" id="cd">3</div>`);
     const t = setInterval(() => {
@@ -378,7 +408,45 @@ function showJoin(note = "") {
   input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
 }
 
-let lastState = null;
+// ── 「為什麼找不完？」：老師打開收件時，學生寫短短一句原因，會出現在前面的螢幕上（不顯示名字）──
+const MAX_REASONS = 3;
+let myReasons = [];
+const reasonsKey = () => `ci-reasons-${ROOM}-${me && me.created}`;
+function loadMine() { try { myReasons = JSON.parse(localStorage.getItem(reasonsKey()) || "[]"); } catch (e) { myReasons = []; } }
+function showAsk(ask) {
+  loadMine();
+  const mine = myReasons.length ? `<p>你寫的：</p><ul class="mine">${myReasons.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
+  if (ask === "closed") {
+    card(`<h2>老師停止收件了</h2>${mine}<p class="note">抬頭看螢幕上大家的答案</p>`);
+    return;
+  }
+  const left = MAX_REASONS - myReasons.length;
+  card(`<h2>你覺得，為什麼找不完瑕疵？</h2>
+    <p>用一句短短的話寫下來，會出現在前面的螢幕上（不會顯示名字）。</p>
+    ${left > 0 ? `<input id="rs" maxlength="20" autocomplete="off" enterkeyhint="send" placeholder="例如：太小了看不到">
+      <p class="err" id="rerr"></p><button type="button" id="rsend">送出</button><p class="left">還可以再寫 ${left} 則</p>`
+      : `<p class="note">你已經寫了 ${MAX_REASONS} 則，抬頭看螢幕！</p>`}
+    ${mine}`);
+  if (left <= 0) return;
+  const send = async () => {
+    const text = $("rs").value.replace(/\s+/g, " ").trim().slice(0, 20);
+    if (!text) { $("rerr").textContent = "先寫一句再送出"; return; }
+    $("rsend").disabled = true;
+    try {
+      await net.sendReason(ROOM, me.uid, me.token, text);
+      myReasons.push(text);
+      try { localStorage.setItem(reasonsKey(), JSON.stringify(myReasons)); } catch (e) {}
+      showAsk("open");
+    } catch (e) {
+      $("rerr").textContent = e.code === "closed" ? "老師已經停止收件了" : e.code === "too-many" ? `每個人最多寫 ${MAX_REASONS} 則` : "送出失敗，請再按一次";
+      $("rsend").disabled = false;
+    }
+  };
+  $("rsend").onclick = send;
+  $("rs").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) send(); });
+}
+
+let lastState = null, lastAsk = "";
 function applyMeta(meta) {
   if (!me) return;
   // 老師開了新的一局（同一房間重玩）：清掉這台平板上的成績
@@ -387,10 +455,14 @@ function applyMeta(meta) {
     try { localStorage.setItem(meKey, JSON.stringify(me)); } catch (e) {}
     running = false; clearInterval(clockTimer);
     G = freshGame(); cur = 0; render();
-    lastState = null;
+    lastState = null; lastAsk = "";
   }
-  if (meta.state === lastState) return;
-  lastState = meta.state;
+  const ask = meta.state === "ended" ? (meta.ask || "") : "";
+  if (meta.state === lastState && ask === lastAsk) return;
+  const stateChanged = meta.state !== lastState;
+  lastState = meta.state; lastAsk = ask;
+  if (ask) { if (running) finishRound(); showAsk(ask); return; }   // 老師打開了「為什麼找不完？」
+  if (!stateChanged) { showEnd(); return; }                       // 老師關掉收件：回到成績畫面
   if (meta.state === "playing" && net.serverNow() < meta.endsAt) {
     startRound(meta.endsAt);
   } else if (meta.state === "playing" || meta.state === "ended") {

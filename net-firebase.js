@@ -2,6 +2,7 @@
 // 資料結構：
 //   rooms/{4 位數代碼}/meta            owner（開房老師的 uid）、state（lobby / playing / ended）、
 //                                     created、seconds、startedAt、endsAt
+//   rooms/{代碼}/reasons/{自動 id}      「為什麼找不完」學生寫的答案：uid、text、t（meta.ask 是 open 時才收）
 //   rooms/{代碼}/players/{學生 uid}    name、score、found、wrong、t、chips（每張：seen、hits、taps）
 // 學生和老師都用匿名登入分辨身分；誰能寫什麼由 database.rules.json 決定。
 import { firebaseConfig } from "./firebase-config.js";
@@ -63,7 +64,7 @@ export async function fetchRoom(code, key) {
   const v = (await D.get(ref(`rooms/${code}`))).val();
   if (!v || !v.meta) fail("no-room");
   if (key && v.meta.owner !== user.uid) fail("no-room"); // 別人的房間（或換了瀏覽器）：開新房
-  return { meta: v.meta, players: normPlayers(v.players) };
+  return { meta: v.meta, players: normPlayers(v.players), reasons: v.reasons || {} };
 }
 
 export function watchRoom(code, key, cb, onGone) {
@@ -73,7 +74,7 @@ export function watchRoom(code, key, cb, onGone) {
     stop = D.onValue(ref(`rooms/${code}`), s => {
       const v = s.val();
       if (!v || !v.meta) { onGone && onGone(); return; }
-      cb({ meta: v.meta, players: normPlayers(v.players) });
+      cb({ meta: v.meta, players: normPlayers(v.players), reasons: v.reasons || {} });
     }, e => console.warn(e));
   });
   return () => { dead = true; stop && stop(); };
@@ -93,7 +94,7 @@ export async function setState(code, key, state, extra = {}) {
   } else if (state === "ended") {
     up["meta/endsAt"] = Math.min(meta.endsAt || now, now);
   } else if (state === "lobby") { // 同一個房間重玩：清掉成績，名單保留
-    Object.assign(up, { "meta/startedAt": 0, "meta/endsAt": 0, "meta/created": now });
+    Object.assign(up, { "meta/startedAt": 0, "meta/endsAt": 0, "meta/created": now, "meta/ask": "", reasons: null });
     const ps = (await D.get(ref(`rooms/${code}/players`))).val() || {};
     for (const uid in ps) Object.assign(up, {
       [`players/${uid}/score`]: 0, [`players/${uid}/found`]: 0, [`players/${uid}/wrong`]: 0,
@@ -102,6 +103,15 @@ export async function setState(code, key, state, extra = {}) {
   }
   await D.update(ref(`rooms/${code}`), up);
   return { meta: { ...meta, ...Object.fromEntries(Object.entries(up).filter(([k]) => k.startsWith("meta/")).map(([k, v]) => [k.slice(5), v])) } };
+}
+
+// 「為什麼找不完」：ask 是 ""（沒在收）、"open"（收件中）、"closed"（停止收件）
+export const setAsk = async (code, key, ask) => { await ready; await D.update(ref(`rooms/${code}/meta`), { ask }); };
+// 老師刪掉答案：ids 沒給就全部刪
+export async function removeReasons(code, key, ids = null) {
+  await ready;
+  if (!ids) return D.remove(ref(`rooms/${code}/reasons`));
+  await D.update(ref(`rooms/${code}/reasons`), Object.fromEntries(ids.map(i => [i, null])));
 }
 
 export const kick = async (code, key, uid) => { await ready; await D.remove(ref(`rooms/${code}/players/${uid}`)); };
@@ -124,6 +134,14 @@ export async function pushMe(code, uid, token, data) {
     chips: data.chips.map(c => ({ seen: Math.round(c.seen), hits: c.hits, taps: c.taps })),
     t: D.serverTimestamp(),
   });
+  return { ok: true };
+}
+
+export async function sendReason(code, uid, token, text) {
+  await ready;
+  try {
+    await D.push(ref(`rooms/${code}/reasons`), { uid: user.uid, text, t: D.serverTimestamp() });
+  } catch (e) { fail("closed"); } // 規則只在收件中才讓學生寫
   return { ok: true };
 }
 

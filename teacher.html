@@ -139,6 +139,21 @@
   .rside .navs button{flex:1}
   .keyhint{color:var(--muted);font-size:12.5px;margin:0;text-align:center}
 
+  /* ── 為什麼找不完？（文字雲）── */
+  #vAsk{display:flex;flex-direction:column;min-height:0}
+  .askhead{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .askhead h2{margin:0;font-size:clamp(28px,3.2vw,48px);margin-right:auto}
+  .askhead .pill b{color:var(--accent)}
+  .askhead .pill.closed{border-color:var(--hot)}
+  .cloud{flex:1;min-height:0;overflow:auto;display:flex;flex-wrap:wrap;align-content:center;justify-content:center;align-items:center;gap:clamp(10px,1.4vw,22px) clamp(14px,2vw,34px);padding:clamp(10px,2vh,30px)}
+  .cloud .empty{font-size:clamp(20px,2vw,30px)}
+  .word{border:0;background:transparent;font-weight:900;line-height:1.15;cursor:pointer;padding:2px 6px;border-radius:12px;font-size:var(--fs);color:var(--c)}
+  .word:hover{background:rgba(255,255,255,.08);text-decoration:line-through}
+  .word sup{font-size:.42em;color:var(--muted);margin-left:4px;vertical-align:super}
+  .word.new{animation:wordin .6s cubic-bezier(.3,1.5,.5,1)}
+  @keyframes wordin{0%{transform:scale(.3);opacity:0}100%{transform:none;opacity:1}}
+  #vAsk .keyhint{margin:6px 0 0}
+
   /* ── 全班報告 ── */
   #vReport{display:flex;flex-direction:column;min-height:0}
   #vReport h2{margin:0;font-size:clamp(28px,3vw,46px)}
@@ -207,7 +222,8 @@
     <div class="podium" id="podium"></div>
     <ol class="restlist" id="rest"></ol>
     <div class="actions">
-      <button class="bigbtn" id="btnReveal">逐張公布答案 →</button>
+      <button class="bigbtn" id="btnAsk">下一頁：為什麼找不完？ →</button>
+      <button class="ghost" id="btnReveal">直接逐張公布答案</button>
       <button class="ghost" id="btnAgain">同一批人再玩一次</button>
       <button class="ghost" id="btnNew">開新房間</button>
     </div>
@@ -250,7 +266,25 @@
     <div class="actions">
       <button class="ghost" id="btnBack">‹ 回到第 6 張</button>
       <button class="ghost" id="btnPodium">看排行榜</button>
+      <button class="ghost" id="btnAskAgain">看大家寫的「為什麼找不完」</button>
     </div>
+  </section>
+
+  <!-- 為什麼找不完？（文字雲）-->
+  <section class="view" id="vAsk" hidden>
+    <div class="askhead">
+      <h2>你覺得，為什麼我們找不完瑕疵？</h2>
+      <div class="pill">已收到 <b id="askN">0</b> 則</div>
+      <div class="pill" id="askState">收件中</div>
+    </div>
+    <div class="cloud" id="cloud"></div>
+    <div class="actions">
+      <button class="ghost" id="askBack">‹ 返回</button>
+      <button class="ghost" id="askToggle">停止收件</button>
+      <button class="ghost" id="askClear">全部清除</button>
+      <button class="bigbtn" id="askNext">逐張公布答案 →</button>
+    </div>
+    <p class="keyhint">學生在平板上輸入，答案會即時出現；一樣的答案會合在一起，越多人寫字越大。點一則答案可以把它隱藏。</p>
   </section>
 </main>
 
@@ -264,7 +298,7 @@ function el(tag, attrs, text) { const e = document.createElementNS(NS, tag); for
 function esc(t) { return String(t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 let room = null;      // { code, key }
-let meta = null, players = {};
+let meta = null, players = {}, reasons = {};
 let full = null;      // 含點擊紀錄的全班資料（公布答案用）
 let view = "boot";
 let seconds = DEFAULT_SECONDS;
@@ -272,7 +306,7 @@ let stopWatch = null;
 
 function show(v) {
   view = v;
-  ["Boot", "Lobby", "Play", "End", "Reveal", "Report"].forEach(n => $("v" + n).hidden = ("v" + n) !== "v" + v[0].toUpperCase() + v.slice(1));
+  ["Boot", "Lobby", "Play", "End", "Reveal", "Report", "Ask"].forEach(n => $("v" + n).hidden = ("v" + n) !== "v" + v[0].toUpperCase() + v.slice(1));
   if (v === "reveal") requestAnimationFrame(fitStage);
 }
 
@@ -296,7 +330,7 @@ async function openRoom(forceNew = false) {
 
   let base = location.origin + location.pathname.replace(/[^/]*$/, "");
   try { const i = await net.info(); if (i.lan) base = i.lan + location.pathname.replace(/[^/]*$/, ""); } catch (e) {}
-  const url = base + "index.html?room=" + room.code;
+  const url = base + "index.html?room=" + room.code + (net.usingFirebase ? "" : "&local");
   $("joinUrl").innerHTML = `或在瀏覽器輸入 <b>${esc(url)}</b>` +
     (/127\.0\.0\.1|localhost/.test(url) ? `<br>（這是本機網址，平板連不到；要讓平板加入，請用 <b>python3 server.py --lan</b> 啟動）` : "");
   drawQR($("qrBig"), url); drawQR($("qrSmall"), url);
@@ -313,7 +347,8 @@ function drawQR(box, text) {
 // ── 收到房間狀態 ──
 let lastState = null, ending = false;
 function onRoom(r) {
-  meta = r.meta; players = r.players || {};
+  meta = r.meta; players = r.players || {}; reasons = r.reasons || {};
+  if (view === "ask") renderCloud();
   const list = Object.entries(players);
   $("count").textContent = list.length;
   if (meta.state !== lastState) {
@@ -326,6 +361,7 @@ function onRoom(r) {
       $("podium").innerHTML = $("rest").innerHTML = "";
       // 等最後一筆成績送到再排名（學生端時間到會再送一次）
       setTimeout(async () => { await loadFull(); if (view === "end") showPodium(); }, prev === "playing" ? 1500 : 0);
+      if (meta.ask) { askFrom = "end"; show("ask"); renderCloud(); }   // 重新整理時還在收「為什麼找不完」：回到那一頁
     }
   }
   if (view === "lobby") renderLobby(list);
@@ -412,7 +448,11 @@ addEventListener("resize", () => { if (view === "reveal") fitStage(); });
 function openChip(i) {
   rc = i; dotsOn = false; ansOn = false; zoomStep = 0;
   show("reveal");
-  $("hdImg").src = `img/chip${i + 1}.png`;
+  // 等這張圖載好再顯示，免得投影上先出現上一張的圖、卻畫著這一張的答案
+  $("hdImg").style.visibility = "hidden";
+  $("hdImg").onload = () => { $("hdImg").style.visibility = ""; };
+  $("hdImg").src = `img/chip${i + 1}.jpg`;
+  if ($("hdImg").complete) $("hdImg").style.visibility = "";
   $("rTitle").textContent = `第 ${i + 1} 張`;
   $("btnPrev").disabled = i === 0;
   $("btnNext").textContent = i === CHIPS.length - 1 ? "全班報告 ›" : "下一張 ›";
@@ -530,6 +570,54 @@ function showReport() {
 }
 $("btnBack").onclick = () => openChip(CHIPS.length - 1);
 $("btnPodium").onclick = () => { showPodium(); show("end"); };
+
+// ── 為什麼找不完？（文字雲）──
+// 老師打開這一頁時 meta.ask = "open"，學生平板會跳出輸入框；離開這一頁就收起來（ask = ""）。
+let askFrom = "end", shownWords = new Set();
+const COLORS = ["#ffb35c", "#ff8a5c", "#6fdca0", "#ffd166", "#c9a7ff", "#7cc8ff", "#f6f1ea"];
+const normText = t => String(t).replace(/[\s，。！？、,.!?~～…「」『』"'()（）:：;；-]/g, "").toLowerCase();
+const hash = t => [...t].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7);
+function openAsk(from) {
+  askFrom = from; shownWords = new Set();
+  show("ask");
+  if (!meta.ask || meta.ask === "") net.setAsk(room.code, room.key, "open");
+  renderCloud();
+}
+function leaveAsk() { net.setAsk(room.code, room.key, ""); }
+function renderCloud() {
+  // 一樣的答案（去掉空白和標點後相同）合在一起，越多人寫字越大
+  const groups = new Map();
+  for (const [id, r] of Object.entries(reasons)) {
+    const k = normText(r.text); if (!k) continue;
+    const g = groups.get(k) || { text: r.text, ids: [], t: r.t || 0 };
+    g.ids.push(id); g.t = Math.min(g.t, r.t || 0); groups.set(k, g);
+  }
+  const list = [...groups.entries()].sort((a, b) => a[1].t - b[1].t);
+  $("askN").textContent = Object.keys(reasons).length;
+  const open = meta.ask === "open";
+  $("askState").textContent = open ? "收件中" : "已停止收件";
+  $("askState").classList.toggle("closed", !open);
+  $("askToggle").textContent = open ? "停止收件" : "重新開放收件";
+  if (!list.length) { $("cloud").innerHTML = `<p class="empty">等大家在平板上輸入……</p>`; return; }
+  $("cloud").innerHTML = list.map(([k, g]) => {
+    const n = g.ids.length, fs = Math.min(96, 26 + (n - 1) * 14);
+    return `<button class="word${shownWords.has(k) ? "" : " new"}" data-k="${esc(k)}" style="--fs:clamp(${Math.round(fs * .7)}px, ${(fs / 13.66).toFixed(2)}vw, ${fs}px);--c:${COLORS[hash(k) % COLORS.length]}">${esc(g.text)}${n > 1 ? `<sup>×${n}</sup>` : ""}</button>`;
+  }).join("");
+  list.forEach(([k]) => shownWords.add(k));
+}
+$("cloud").onclick = e => {
+  const b = e.target.closest(".word"); if (!b) return;
+  const ids = Object.entries(reasons).filter(([, r]) => normText(r.text) === b.dataset.k).map(([id]) => id);
+  if (confirm(`把「${b.textContent}」從螢幕上拿掉？`)) net.removeReasons(room.code, room.key, ids);
+};
+$("btnAsk").onclick = () => openAsk("end");
+$("btnAskAgain").onclick = () => openAsk("report");
+$("askToggle").onclick = () => net.setAsk(room.code, room.key, meta.ask === "open" ? "closed" : "open");
+$("askClear").onclick = () => { if (confirm("把大家寫的答案全部清掉？")) net.removeReasons(room.code, room.key); };
+$("askBack").onclick = () => { leaveAsk(); if (askFrom === "report") showReport(); else { showPodium(); show("end"); } };
+$("askNext").onclick = async () => { leaveAsk(); await loadFull(); openChip(0); };
+
+CHIPS.forEach((c, i) => { new Image().src = `img/chip${i + 1}.jpg`; });
 
 openRoom().catch(e => {
   console.error(e);

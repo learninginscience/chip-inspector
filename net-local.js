@@ -33,6 +33,9 @@ export const createRoom = seconds => call("rooms", { seconds });
 export const setState = (code, key, state, extra = {}) => call(`rooms/${code}/state`, { key, state, ...extra });
 export const kick = (code, key, uid) => call(`rooms/${code}/kick`, { key, uid });
 export const fetchRoom = (code, key, taps = false) => call(`rooms/${code}?key=${key}${taps ? "&taps=1" : ""}`);
+// 「為什麼找不完」：ask 是 ""（沒在收）、"open"（收件中）、"closed"（停止收件）；ids 沒給就全部刪
+export const setAsk = (code, key, ask) => call(`rooms/${code}/ask`, { key, ask });
+export const removeReasons = (code, key, ids = null) => call(`rooms/${code}/unreason`, { key, ids });
 export function watchRoom(code, key, cb, onGone) {
   return poll(async () => {
     try { cb(await fetchRoom(code, key)); }
@@ -43,6 +46,7 @@ export function watchRoom(code, key, cb, onGone) {
 // ── 學生端 ──
 export const join = (code, name) => call(`rooms/${code}/join`, { name });
 export const pushMe = (code, uid, token, data) => call(`rooms/${code}/me`, { uid, token, data });
+export const sendReason = (code, uid, token, text) => call(`rooms/${code}/reason`, { uid, token, text });
 export const fetchMe = (code, uid, token) => call(`rooms/${code}?uid=${uid}&token=${token}`);
 // getMe() 回傳目前的 { uid, token }（還沒加入就是 null）；cb 第二個參數是這次查詢用的 uid
 export function watchMeta(code, getMe, cb, onGone) {

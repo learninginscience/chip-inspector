@@ -30,7 +30,9 @@ LOCK = threading.Lock()
 MAX_PLAYERS = 80
 MAX_TAPS_PER_CHIP = 120
 N_CHIPS = 6
-GRACE_MS = 5000  # 時間到之後，還收幾秒內送來的最後一筆成績
+GRACE_MS = 5000         # 時間到之後，還收幾秒內送來的最後一筆成績
+MAX_REASON_LEN = 20     # 「為什麼找不完」每則最多幾個字
+MAX_REASONS_EACH = 3    # 每個學生最多寫幾則
 
 
 def now_ms():
@@ -134,6 +136,7 @@ class Handler(SimpleHTTPRequestHandler):
                         uid: {k: v for k, v in p.items() if k not in drop}
                         for uid, p in room["players"].items()
                     }
+                    out["reasons"] = room.get("reasons", {})
                 elif q.get("uid") in room["players"] and q.get("token") == room["players"][q["uid"]]["_token"]:
                     p = room["players"][q["uid"]]  # 學生重新整理後接回去
                     out["me"] = {k: v for k, v in p.items() if k != "_token"}
@@ -160,10 +163,11 @@ class Handler(SimpleHTTPRequestHandler):
                     "key": key,
                     "meta": {"state": "lobby", "created": now_ms(), "seconds": secs, "startedAt": 0, "endsAt": 0},
                     "players": {},
+                    "reasons": {},  # 「為什麼找不完」學生寫的答案：{id: {uid, text, t}}
                 }
             return self.send_json({"code": code, "key": key})
 
-        m = re.fullmatch(r"/api/rooms/(\d{4})/(state|kick|join|me)", u.path)
+        m = re.fullmatch(r"/api/rooms/(\d{4})/(state|kick|join|me|ask|reason|unreason)", u.path)
         if not m:
             return self.send_json({"error": "not-found"}, 404)
         code, action = m[1], m[2]
@@ -173,9 +177,23 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             meta = room["meta"]
 
-            if action in ("state", "kick"):
+            if action in ("state", "kick", "ask", "unreason"):
                 if d.get("key") != room["key"]:
                     return self.send_json({"error": "forbidden"}, 403)
+                if action == "ask":  # 「為什麼找不完」收件狀態：""（沒在收）、open、closed
+                    ask = d.get("ask") or ""
+                    if ask not in ("", "open", "closed"):
+                        return self.send_json({"error": "bad-ask"}, 400)
+                    meta["ask"] = ask
+                    return self.send_json({"meta": meta})
+                if action == "unreason":  # 老師刪掉答案：ids 沒給就全部刪
+                    ids = d.get("ids")
+                    if ids is None:
+                        room["reasons"] = {}
+                    else:
+                        for i in ids:
+                            room.setdefault("reasons", {}).pop(str(i), None)
+                    return self.send_json({"ok": True})
                 if action == "kick":
                     room["players"].pop(str(d.get("uid")), None)
                     return self.send_json({"ok": True})
@@ -188,7 +206,8 @@ class Handler(SimpleHTTPRequestHandler):
                 elif state == "ended":
                     meta["endsAt"] = min(meta["endsAt"] or now_ms(), now_ms())
                 elif state == "lobby":  # 同一個房間重玩：清掉成績，名單保留
-                    meta.update(startedAt=0, endsAt=0, created=now_ms())
+                    meta.update(startedAt=0, endsAt=0, created=now_ms(), ask="")
+                    room["reasons"] = {}
                     for p in room["players"].values():
                         p.update(clean_player_data({}), t=0)
                     if d.get("seconds"):
@@ -207,6 +226,21 @@ class Handler(SimpleHTTPRequestHandler):
                 uid, token = secrets.token_hex(6), secrets.token_hex(12)
                 room["players"][uid] = {"name": name, "_token": token, "t": 0, **clean_player_data({})}
                 return self.send_json({"uid": uid, "token": token, "meta": meta})
+
+            if action == "reason":
+                p = room["players"].get(str(d.get("uid")))
+                if not p or d.get("token") != p["_token"]:
+                    return self.send_json({"error": "gone"}, 404)
+                if meta.get("ask") != "open":
+                    return self.send_json({"error": "closed"}, 400)
+                text = re.sub(r"\s+", " ", str(d.get("text") or "")).strip()[:MAX_REASON_LEN]
+                if not text:
+                    return self.send_json({"error": "empty"}, 400)
+                reasons = room.setdefault("reasons", {})
+                if sum(1 for r in reasons.values() if r["uid"] == d["uid"]) >= MAX_REASONS_EACH:
+                    return self.send_json({"error": "too-many"}, 400)
+                reasons[secrets.token_hex(6)] = {"uid": d["uid"], "text": text, "t": now_ms()}
+                return self.send_json({"ok": True})
 
             if action == "me":
                 p = room["players"].get(str(d.get("uid")))
