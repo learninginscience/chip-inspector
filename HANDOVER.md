@@ -122,11 +122,13 @@ python3 server.py --lan
 
 ## 7. 放上網路
 
-步驟寫在 `DEPLOY.md`：先建 Firebase 專案、把設定填進 `firebase-config.js`，再把檔案上傳到 GitHub（`idontlikescience/chip-inspector`），開 GitHub Pages。
+步驟寫在 `DEPLOY.md`：先建 Firebase 專案、把設定填進 `firebase-config.js`，再把檔案上傳到 GitHub，開 GitHub Pages。
 
-- 網址：`https://idontlikescience.github.io/chip-inspector/teacher.html`（2026-10-19 上線，學生加入、老師端即時看到名字都測過）
+**2026-11-11 起，正式版本在 LIS 組織的 `learninginscience/chip-inspector`**（從邱昱禎的 `idontlikescience/chip-inspector` 複製過來，含完整修改紀錄）。改東西請開分支、送 PR（見 `CONTRIBUTING.md`），由 pxchen-89 審核後合併。
+
+- 網址：`https://learninginscience.github.io/chip-inspector/teacher.html`（原本的 `idontlikescience.github.io/chip-inspector` 是 2026-10-19 上線的第一個網址）
 - Firebase 專案：`chip-inspector`（Realtime Database 在新加坡，匿名登入）
-- **GitHub 會跳「Secret scanning」警告，說 `firebase-config.js` 洩漏了 Google API Key**。這是誤報：Firebase 網頁設定的 apiKey 本來就要放在網頁上給瀏覽器用，不是密碼；資料安全靠的是 `database.rules.json`。建議到 Google Cloud 主控台把這把金鑰限制成只能從 `idontlikescience.github.io` 和本機測試網址使用，再把警告關掉（選「Won't fix」）。nochip-day 的金鑰也是同樣公開在網頁上。
+- **GitHub 會跳「Secret scanning」警告，說 `firebase-config.js` 洩漏了 Google API Key**。這是誤報：Firebase 網頁設定的 apiKey 本來就要放在網頁上給瀏覽器用，不是密碼；資料安全靠的是 `database.rules.json`。建議到 Google Cloud 主控台把這把金鑰限制成只能從 `learninginscience.github.io`、`idontlikescience.github.io` 和本機測試網址使用，再把警告關掉（選「Won't fix」）。nochip-day 的金鑰也是同樣公開在網頁上。
 - 資料結構：`rooms/{4 位數代碼}/meta`（owner、state、created、seconds、startedAt、endsAt、ask）、`rooms/{代碼}/players/{學生 uid}`（name、score、found、wrong、t、chips）、`rooms/{代碼}/reasons/{自動 id}`（uid、text、t：「為什麼找不完」的答案）。
 - **`database.rules.json` 跟晶片懸案資料夾裡的那份完全一樣**（兩個遊戲的規則合在一起）。Firebase 只有一份規則，貼哪一份都可以；但兩邊有改時要保持一致，不然貼了舊的那份會把另一個遊戲的規則蓋掉。
 - 網址加 `?local` 可以強制用本機 `server.py` 測試（Firebase 規則還沒更新時用）。
@@ -158,3 +160,4 @@ python3 server.py --lan
 **換圖或改學生頁時請記得**：不要再用「改同一個 `<img>` 的網址」來換張，教室網路慢的時候一定會出現舊圖。
 - 2026-11-03　加入「為什麼找不完？」文字雲（頒獎台下一頁）；規則檔改成跟晶片懸案同一份合併版；網址加 `?local` 可強制用本機伺服器
 - 2026-11-04　第 1、2、4、5 張換成使用者提供的新圖（瑕疵更像真的），點擊範圍重新用逐點比對定出；第 2 張下方一個肉眼看不到的雜點用底圖蓋掉。舊圖備份在 `桌面/LIS/github/_舊圖備份/2026-11-04/`
+- 2026-11-11　複製到 LIS 組織（learninginscience/chip-inspector），網址改成 learninginscience.github.io/chip-inspector；新增 CONTRIBUTING.md 與 CODEOWNERS

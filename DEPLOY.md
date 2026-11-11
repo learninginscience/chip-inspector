@@ -1,5 +1,7 @@
 # 晶片檢測站：放上網路的步驟
 
+> 2026-11-11 起正式版本在 `learninginscience/chip-inspector`，網址是 https://learninginscience.github.io/chip-inspector/teacher.html 。下面是第一次架設時的步驟，保留給以後重新架設參考。
+
 做完之後，老師開 `https://idontlikescience.github.io/chip-inspector/teacher.html` 投影，學生用平板掃 QR code 就能玩，不用開任何伺服器、不用跟電腦連同一個 Wi-Fi。
 
 架構跟 nochip-day 一樣：
@@ -27,7 +29,7 @@
    - 按「註冊應用程式」後，畫面會出現一段 `const firebaseConfig = { apiKey: ..., ... }`
 6. **把那一段 `firebaseConfig` 貼給 Claude**（或自己貼進 `firebase-config.js`，取代裡面的空字串）。
    - 這段本來就會公開在網頁上，不是密碼，可以放心貼。
-7. **加入授權網域**：「Authentication → 設定 → 授權網域」→「新增網域」→ 輸入 `idontlikescience.github.io`。
+7. **加入授權網域**：「Authentication → 設定 → 授權網域」→「新增網域」→ 輸入 `idontlikescience.github.io`（搬進組織後也要加 `learninginscience.github.io`）。
 
 填好設定後，可以先在本機用真的 Firebase 試一次（`python3 server.py`，開 http://127.0.0.1:8776/teacher.html），確認排行榜會動，再上傳。
 
